@@ -12,6 +12,9 @@ typedef struct _db {
     char basedir[MAX_FILENAME+1];
     SST* sst;
     MemTable* memtable;
+    pthread_mutex_t readwrite_mutex;				//Orismos kleidarias amoibaiou apokleismou (mutex) gia tous anagnwstes kai ton grafea
+    pthread_mutex_t readcount_mutex;				//Orismos kleidarias amoibaiou apokleismou (mutex) mono gia tous anagnwstes
+    int readcount;						//Plh8os anagnwstwn
 } DB;
 
 DB* db_open(const char *basedir);

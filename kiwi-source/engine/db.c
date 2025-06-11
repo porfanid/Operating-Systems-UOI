@@ -1,7 +1,6 @@
 #include <string.h>
 #include <assert.h>
 #include "db.h"
-#include "indexer.h"
 #include "utils.h"
 #include "log.h"
 
@@ -17,6 +16,10 @@ DB* db_open_ex(const char* basedir, uint64_t cache_size)
 
     Log* log = log_new(self->sst->basedir);
     self->memtable = memtable_new(log);
+
+    pthread_mutex_init(&(self->readwrite_mutex),NULL);				//Arxikopoihsh kleidarias amoibaiou apokleismou(mutex) gia tous anagnwstes kai ton grafea
+    pthread_mutex_init(&(self->readcount_mutex),NULL);				//Arxikopoihsh kleidarias amoibaiou apokleismou(mutex) mono gia tous anagnwstes 
+    self->readcount=0;									//Arxikopoihsh tou plh8ous twn anagnwstwn sto 0
 
     return self;
 }
@@ -45,7 +48,9 @@ void db_close(DB *self)
 }
 
 int db_add(DB* self, Variant* key, Variant* value)
-{
+{   
+    pthread_mutex_lock(&self->readwrite_mutex);				//Kleidwma me mutex tou plh8ous twn anagnwstwn kai tou grafea prin mpei sthn krisimh perioxh
+	//Arxh krisimhs perioxhs
     if (memtable_needs_compaction(self->memtable))
     {
         INFO("Starting compaction of the memtable after %d insertions and %d deletions",
@@ -53,16 +58,30 @@ int db_add(DB* self, Variant* key, Variant* value)
         sst_merge(self->sst, self->memtable);
         memtable_reset(self->memtable);
     }
-
-    return memtable_add(self->memtable, key, value);
+	//Telos krisimhs perioxhs
+    pthread_mutex_unlock(&self->readwrite_mutex);				//3ekleidwma me mutex tou plh8ous twn anagnwstwn kai tou grafea,afou ektelestei h krisimh perioxh
+    return memtable_add(self->memtable, key, value);						
 }
 
 int db_get(DB* self, Variant* key, Variant* value)
-{
+{   
+    pthread_mutex_lock(&self->readcount_mutex);				//Kleidwma me mutex tou plh8ous twn anagnwstwn prin mpei sthn krisimh perioxh	
+	//Arxh krisimhs perioxhs
+    self->readcount++;								//Au3anoume to plh8os twn anagnwstwn kata 1
+    if(self->readcount==1)
+       pthread_mutex_lock(&self->readwrite_mutex);				//Kleidwma me mutex tou plh8ous twn anagnwstwn kai tou grafea
+   //Telos krisimhs perioxhs
+    pthread_mutex_unlock(&self->readcount_mutex);				//3ekleidwma me mutex tou plh8ous twn anagnwstwn,afou ektelestei h krisimh perioxh
     if (memtable_get(self->memtable->list, key, value) == 1)
         return 1;
-
-    return sst_get(self->sst, key, value);
+    pthread_mutex_lock(&self->readcount_mutex);				//Kleidwma me mutex tou plh8ous twn anagnwstwn prin mpei sthn krisimh perioxh
+	//Arxh krisimhs perioxhs
+    self->readcount--;								//Meiwnoume to plh8os twn anagnwstwn kata 1
+    if(self->readcount==0)
+       pthread_mutex_unlock(&self->readwrite_mutex);				//3eleidwma me mutex tou plh8ous twn anagnwstwn kai tou grafea
+   //Telos krisimhs perioxhs
+    pthread_mutex_unlock(&self->readcount_mutex);				//3ekleidwma me mutex tou plh8ous twn anagnwstwn,afou ektelestei h krisimh perioxh
+    return sst_get(self->sst, key, value);									
 }
 
 int db_remove(DB* self, Variant* key)
